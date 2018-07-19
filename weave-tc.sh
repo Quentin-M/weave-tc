@@ -35,7 +35,7 @@ tc qdisc add dev weave parent 1:2 handle 12: fq_codel
 
 tc qdisc add dev weave parent 1:1 handle 11: netem delay 4ms 1ms distribution pareto
 tc filter add dev weave protocol all parent 1: prio 1 handle 0x100/0x100 fw flowid 1:1
-iptables -A POSTROUTING -t mangle -p udp --dport 5353 -m string -m u32 --u32 "28 & 0xF8 = 0" --hex-string "|00001C0001|" --algo bm --from 40 -j MARK --set-mark 0x100/0x100
+iptables -A POSTROUTING -t mangle -p udp --dport $DNSMASQ_PORT -m string -m u32 --u32 "28 & 0xF8 = 0" --hex-string "|00001C0001|" --algo bm --from 40 -j MARK --set-mark 0x100/0x100
 
 while sleep 3600; do :; done
 
