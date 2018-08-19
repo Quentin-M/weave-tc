@@ -1,5 +1,11 @@
 #!/bin/sh -ex
 
+# DNSMASQ_PORT represents the port your DNS server is listening on.
+#
+# Note that on Kubernetes, this is the port the DNS process/container uses, and not the
+# port that is exposed by the Service.
+DNSMASQ_PORT=${DNSMASQ_PORT:-53}
+
 # Force the kernel to re-create the dummy mq scheduler on the default interface,
 # - as the child qdiscs may have been set to pfifo_fast at boot even if the default
 # appear to be ‘fq_codel’ (we also set the default to fq_codel regardless, for older
@@ -25,8 +31,8 @@ tc qdisc add dev $(route | grep '^default' | grep -o '[^ ]*$') root handle 0: mq
 # be avoid the race in a statistically satisfying manner, and that is controlled by a pareto
 # distribution (k=4ms, a=1ms) and route traffic marked by 0x100/0x100 to it.
 #
-# Using iptables, we mark 0x100/0x100 the UDP traffic destined to port 5353, that have the
-# DNS query bits set (fast check) and then that contain at least one question with QTYPE=AAAA.
+# Using iptables, we mark 0x100/0x100 the UDP traffic destined to port $DNSMASQ_PORT, that have
+# the DNS query bits set (fast check) and then that contain at least one question with QTYPE=AAAA.
 while ! ip link | grep "weave:" > /dev/null; do sleep 1; done
 tc qdisc del dev weave root 2>/dev/null || true
 tc qdisc add dev weave root handle 1: prio bands 2 priomap 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
