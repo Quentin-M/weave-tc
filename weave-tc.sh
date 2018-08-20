@@ -6,6 +6,9 @@
 # port that is exposed by the Service.
 DNSMASQ_PORT=${DNSMASQ_PORT:-53}
 
+# NET_OVERLAY_IF represents the network interface that your overlay network uses.
+NET_OVERLAY_IF=${NET_OVERLAY_IF:-weave}
+
 # Force the kernel to re-create the dummy mq scheduler on the default interface,
 # - as the child qdiscs may have been set to pfifo_fast at boot even if the default
 # appear to be ‘fq_codel’ (we also set the default to fq_codel regardless, for older
@@ -20,11 +23,11 @@ sysctl -w net.core.default_qdisc=fq_codel
 tc qdisc del dev $(route | grep '^default' | grep -o '[^ ]*$') root 2>/dev/null || true
 tc qdisc add dev $(route | grep '^default' | grep -o '[^ ]*$') root handle 0: mq || true
 
-# Traffic leaving the weave interface onto the default interface will be encapsulated 
+# Traffic leaving the $NET_OVERLAY_IF interface onto the default interface will be encapsulated 
 # and encrypted in IPSec (ESP), therefore, we may only do traffic shaping work on this
 # interface.
 #
-# The weave interface is a virtual interface, which is set to noqueue by default and does
+# The $NET_OVERLAY_IF interface is a virtual interface, which is set to noqueue by default and does
 # not support mq nor multiq. Therefore, we go directly to the point and create a a 2-bands
 # priomap, that sends all traffic (regardless of the TOS octet) to the 2nd band, a simple 
 # fq_codel. We then define the 1st band as a netem with the a small delay, that appears to 
@@ -33,14 +36,14 @@ tc qdisc add dev $(route | grep '^default' | grep -o '[^ ]*$') root handle 0: mq
 #
 # Using iptables, we mark 0x100/0x100 the UDP traffic destined to port $DNSMASQ_PORT, that have
 # the DNS query bits set (fast check) and then that contain at least one question with QTYPE=AAAA.
-while ! ip link | grep "weave:" > /dev/null; do sleep 1; done
-tc qdisc del dev weave root 2>/dev/null || true
-tc qdisc add dev weave root handle 1: prio bands 2 priomap 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+while ! ip link | grep "$NET_OVERLAY_IF" > /dev/null; do sleep 1; done
+tc qdisc del dev $NET_OVERLAY_IF root 2>/dev/null || true
+tc qdisc add dev $NET_OVERLAY_IF root handle 1: prio bands 2 priomap 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
 
-tc qdisc add dev weave parent 1:2 handle 12: fq_codel
+tc qdisc add dev $NET_OVERLAY_IF parent 1:2 handle 12: fq_codel
 
-tc qdisc add dev weave parent 1:1 handle 11: netem delay 4ms 1ms distribution pareto
-tc filter add dev weave protocol all parent 1: prio 1 handle 0x100/0x100 fw flowid 1:1
+tc qdisc add dev $NET_OVERLAY_IF parent 1:1 handle 11: netem delay 4ms 1ms distribution pareto
+tc filter add dev $NET_OVERLAY_IF protocol all parent 1: prio 1 handle 0x100/0x100 fw flowid 1:1
 iptables -A POSTROUTING -t mangle -p udp --dport $DNSMASQ_PORT -m string -m u32 --u32 "28 & 0xF8 = 0" --hex-string "|00001C0001|" --algo bm --from 40 -j MARK --set-mark 0x100/0x100
 
 while sleep 3600; do :; done
@@ -51,8 +54,8 @@ while sleep 3600; do :; done
 # - On-Host Server:     docker run -d --rm --net=host --pid=host networkstatic/iperf3 -s -V
 # - On-Host Client:     docker run -it --rm --net=host --pid=host networkstatic/iperf3 -c 10.3.6.30 -V -P 16 -i 0
 # - On-Host UDP Client: docker run -it --rm --net=host --pid=host networkstatic/iperf3 -c 10.3.6.30 -u -V -P 16 -t 10 -b 10G -i 0
-# - Weave Client:       docker run -it --rm networkstatic/iperf3 -c 10.3.6.30 -V -P 16 -i 0
-# - Weave UDP Client:   docker run -it --rm networkstatic/iperf3 -c 10.3.6.30 -u -V -P 16 -t 10 -b 10G -i 0
+# - iperf3 Client:       docker run -it --rm networkstatic/iperf3 -c 10.3.6.30 -V -P 16 -i 0
+# - iperf3  UDP Client:   docker run -it --rm networkstatic/iperf3 -c 10.3.6.30 -u -V -P 16 -t 10 -b 10G -i 0
 #
 # dnsperf
 # - Google.com (A/AAAA): echo -e "google.com A\ngoogle.com AAAA" > google && dnsperf -s 172.17.0.10 -l 30 -c 100 -d google
